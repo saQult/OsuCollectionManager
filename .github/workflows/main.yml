@@ -1,0 +1,63 @@
+name: Create Release
+
+on:
+  push:
+    branches:
+      - '*'
+
+jobs:
+  build:
+    runs-on: windows-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Generate random tag
+      id: random_tag
+      run: |
+        $randomTag = "v$(Get-Date -Format 'yyyyMMdd')-$(Get-Random -Minimum 1000 -Maximum 9999)"
+        echo "Generated tag: $randomTag"
+        echo "random_tag=$randomTag" >> $env:GITHUB_OUTPUT
+
+    - name: Create tag
+      run: git tag ${{ steps.random_tag.outputs.random_tag }}
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '9.0.x'
+
+    - name: Restore main projects
+      run: |
+        dotnet restore CollectionManager/CollectionManager.csproj
+        dotnet restore CollectionManager.Core/CollectionManager.Core.csproj
+
+    - name: Build main projects
+      run: |
+        dotnet build CollectionManager/CollectionManager.csproj --configuration Release --no-restore
+        dotnet build CollectionManager.Core/CollectionManager.Core.csproj --configuration Release --no-restore
+
+    - name: Publish (Release Configuration)
+      run: dotnet publish CollectionManager/CollectionManager.csproj -c Release -o publish_output -r win-x64 --self-contained true -p:PublishSingleFile=true -p:PublishTrimmed=false -p:EnableCompressionInSingleFile=true -p:DebugType=None -p:DebugSymbols=false
+   
+    - name: Create ZIP artifact
+      run: |
+        mkdir release_artifacts
+        Compress-Archive -Path publish_output\* -DestinationPath release_artifacts/release.zip
+
+    - name: Upload release artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: release-package
+        path: release_artifacts/release.zip
+
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: ${{ steps.random_tag.outputs.random_tag }}
+        files: release_artifacts/release.zip
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
